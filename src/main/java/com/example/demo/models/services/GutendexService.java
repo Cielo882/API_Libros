@@ -10,76 +10,76 @@ import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+
+import com.example.demo.models.dao.AuthorRepository;
+import com.example.demo.models.dao.LibroRepository;
+import com.example.demo.models.entity.Author;
 import com.example.demo.models.entity.Libro;
 import com.fasterxml.jackson.databind.JsonNode;
+
 
 @Service
 public class GutendexService {
 
-	 private final RestTemplate restTemplate;
+    private final RestTemplate restTemplate;
+    private final LibroRepository libroRepository;
+    private final AuthorRepository authorRepository;
+    @Autowired
+    public GutendexService(RestTemplate restTemplate, LibroRepository libroRepository, AuthorRepository authorRepository) {
+        this.restTemplate = restTemplate;
+        this.libroRepository = libroRepository;
+        this.authorRepository = authorRepository; 
+    }
 
-	    @Autowired
-	    public GutendexService(RestTemplateBuilder builder) {
-	        this.restTemplate = builder.build();
-	    }
+    public Libro buscarLibroPorTitulo(String titulo) {
+        String url = "https://gutendex.com/books?search=" + URLEncoder.encode(titulo, StandardCharsets.UTF_8);
+        ResponseEntity<JsonNode> response = restTemplate.getForEntity(url, JsonNode.class);
 
-	    public Libro buscarLibroPorTitulo(String titulo) {
-	        String url = "https://gutendex.com/books?search=" + URLEncoder.encode(titulo, StandardCharsets.UTF_8);
-	        ResponseEntity<JsonNode> response = restTemplate.getForEntity(url, JsonNode.class);
+        JsonNode data = response.getBody().get("results");
+        if (data != null && data.size() > 0) {
+            JsonNode libroData = data.get(0);  
+            Libro libro = new Libro();
+            libro.setTitulo(libroData.get("title").asText());
 
-	        JsonNode data = response.getBody().get("results");
-	        if (data != null && data.size() > 0) {
-	            JsonNode libroData = data.get(0);  // Tomamos el primer resultado, puedes ajustarlo para manejar varios
-	            Libro libro = new Libro();
-	            libro.setTitulo(libroData.get("title").asText());
+            if (libroData.has("authors") && libroData.get("authors").size() > 0) {
+                JsonNode authorData = libroData.get("authors").get(0);  // Usa el primer autor
+                String authorName = authorData.get("name").asText();
+                Author author = authorRepository.findByName(authorName);
 
-	            // Obtener autores
-	            if (libroData.has("authors") && libroData.get("authors").size() > 0) {
-	                libro.setAutor(libroData.get("authors").get(0).get("name").asText());
-	            }
-	            libro.setIdioma(libroData.get("languages").get(0).asText());
-	            
-	            return libro;
-	        } else {
-	            return null;  // No se encontró el libro
-	        }
-	    }
-	    
-	    public List<Libro> listarAutoresVivosEnAnio(int anio) {
-	        String url = "https://gutendex.com/books?author_year_start=" + anio + "&author_year_end=" + anio;
-	        ResponseEntity<JsonNode> response = restTemplate.getForEntity(url, JsonNode.class);
+                if (author == null) {
+                    author = new Author();
+                    author.setName(authorName);
+                    if (authorData.has("birth_year") && !authorData.get("birth_year").isNull()) {
+                        author.setBirthYear(authorData.get("birth_year").asInt());
+                    }
+                    if (authorData.has("death_year") && !authorData.get("death_year").isNull()) {
+                        author.setDeathYear(authorData.get("death_year").asInt());
+                    }
+                    authorRepository.save(author);
+                }
 
-	        List<Libro> libros = new ArrayList<>();
-	        JsonNode data = response.getBody().get("results");
-	        if (data != null) {
-	            for (JsonNode libroData : data) {
-	                Libro libro = new Libro();
-	                libro.setTitulo(libroData.get("title").asText());
-	                libro.setAutor(libroData.get("authors").get(0).get("name").asText());
-	                libro.setIdioma(libroData.get("languages").get(0).asText());
-	                libros.add(libro);
-	            }
-	        }
-	        return libros;
-	    }
+                libro.setAuthor(author);  // Asigna el autor al libro
+            }
 
+            libro.setIdioma(libroData.get("languages").get(0).asText());
+            libroRepository.save(libro);
 
-	    public List<Libro> listarLibrosPorIdioma(String idioma) {
-	        String url = "https://gutendex.com/books?languages=" + idioma;
-	        ResponseEntity<JsonNode> response = restTemplate.getForEntity(url, JsonNode.class);
-
-	        List<Libro> libros = new ArrayList<>();
-	        JsonNode data = response.getBody().get("results");
-	        if (data != null) {
-	            for (JsonNode libroData : data) {
-	                Libro libro = new Libro();
-	                libro.setTitulo(libroData.get("title").asText());
-	                libro.setAutor(libroData.get("authors").get(0).get("name").asText());
-	                libro.setIdioma(libroData.get("languages").get(0).asText());
-	                libros.add(libro);
-	            }
-	        }
-	        return libros;
-	    }
+            return libro;
+        } else {
+            return null;
+        }
+    }
+    
+    public List<String> formatearAutores(List<Author> autores) {
+        List<String> resultados = new ArrayList<>();
+        for (Author autor : autores) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("\"name\": \"").append(autor.getName()).append("\", ");
+            sb.append("\"birth_year\": ").append(autor.getBirthYear() != null ? autor.getBirthYear() : "null").append(", ");
+            sb.append("\"death_year\": ").append(autor.getDeathYear() != null ? autor.getDeathYear() : "null");
+            resultados.add(sb.toString());
+        }
+        return resultados;
+    }
 
 }
